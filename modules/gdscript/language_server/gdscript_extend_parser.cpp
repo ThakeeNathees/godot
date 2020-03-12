@@ -266,6 +266,38 @@ void ExtendGDScriptParser::parse_class_symbol(const GDScriptParser::ClassNode *p
 		r_symbol.children.push_back(symbol);
 	}
 
+	for (int i = 0; i < p_class->static_variables.size(); ++i) {
+
+		const GDScriptParser::ClassNode::Member &m = p_class->static_variables[i];
+
+		lsp::DocumentSymbol symbol;
+		symbol.name = m.identifier;
+		symbol.kind = lsp::SymbolKind::Variable;
+		symbol.deprecated = false;
+		const int line = LINE_NUMBER_TO_INDEX(m.line);
+		symbol.range.start.line = line;
+		symbol.range.start.character = lines[line].length() - lines[line].strip_edges(true, false).length();
+		symbol.range.end.line = line;
+		symbol.range.end.character = lines[line].length();
+		symbol.selectionRange.start.line = symbol.range.start.line;
+		if (m._export.type != Variant::NIL) {
+			symbol.detail += "export ";
+		}
+		symbol.detail += "var " + m.identifier;
+		if (m.data_type.kind != GDScriptParser::DataType::UNRESOLVED) {
+			symbol.detail += ": " + m.data_type.to_string();
+		}
+		if (m.default_value.get_type() != Variant::NIL) {
+			symbol.detail += " = " + JSON::print(m.default_value);
+		}
+
+		symbol.documentation = parse_documentation(line);
+		symbol.uri = uri;
+		symbol.script_path = path;
+
+		r_symbol.children.push_back(symbol);
+	}
+
 	for (int i = 0; i < p_class->functions.size(); ++i) {
 		const GDScriptParser::FunctionNode *func = p_class->functions[i];
 		lsp::DocumentSymbol symbol;
@@ -712,6 +744,24 @@ Dictionary ExtendGDScriptParser::dump_class_api(const GDScriptParser::ClassNode 
 		constants.push_back(api);
 	}
 	class_api["constants"] = constants;
+
+	Array static_members;
+	for (int i = 0; i < p_class->variables.size(); ++i) {
+		const GDScriptParser::ClassNode::Member &m = p_class->variables[i];
+		Dictionary api;
+		api["name"] = m.identifier;
+		api["data_type"] = m.data_type.to_string();
+		api["default_value"] = m.default_value;
+		api["setter"] = String(m.setter);
+		api["getter"] = String(m.getter);
+		api["export"] = m._export.type != Variant::NIL;
+		if (const lsp::DocumentSymbol *symbol = get_symbol_defined_at_line(LINE_NUMBER_TO_INDEX(m.line))) {
+			api["signature"] = symbol->detail;
+			api["description"] = symbol->documentation;
+		}
+		static_members.push_back(api);
+	}
+	class_api["static_members"] = static_members;
 
 	Array members;
 	for (int i = 0; i < p_class->variables.size(); ++i) {

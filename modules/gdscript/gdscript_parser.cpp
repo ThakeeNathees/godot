@@ -458,12 +458,24 @@ GDScriptParser::Node *GDScriptParser::_parse_expression(Node *p_parent, bool p_s
 				if (subexpr->type == Node::TYPE_IDENTIFIER) {
 					IdentifierNode *in = static_cast<IdentifierNode *>(subexpr);
 
-					// Try to find the constant expression by the identifier
+					// Try to find the constant expression by the identifier from constants
 					if (current_class->constant_expressions.has(in->name)) {
 						Node *cn_exp = current_class->constant_expressions[in->name].expression;
 						if (cn_exp->type == Node::TYPE_CONSTANT) {
 							cn = static_cast<ConstantNode *>(cn_exp);
 							found_constant = true;
+						}
+					}
+
+					// Try to find the constant expression by the identifier from static variables
+					for (int i = 0; i < current_class->static_variables.size(); i++) {
+						if (in->name == current_class->static_variables[i].identifier) {
+							Node *sv_exp = current_class->static_variables[i].expression;
+							if (sv_exp->type == Node::TYPE_CONSTANT) {
+								cn = static_cast<ConstantNode *>(sv_exp);
+								found_constant = true;
+								break;
+							}
 						}
 					}
 				}
@@ -813,7 +825,16 @@ GDScriptParser::Node *GDScriptParser::_parse_expression(Node *p_parent, bool p_s
 				if (cln->constant_expressions.has(identifier)) {
 					expr = cln->constant_expressions[identifier].expression;
 					bfn = true;
-				} else if (GDScriptLanguage::get_singleton()->get_global_map().has(identifier)) {
+				} else {
+					for (int i = 0; i < cln->static_variables.size(); i++) {
+						if (identifier == cln->static_variables[i].identifier) {
+							expr = cln->static_variables[i].expression;
+							bfn = true;
+							break;
+						}
+					}
+				}
+				if (!bfn && GDScriptLanguage::get_singleton()->get_global_map().has(identifier)) {
 					//check from constants
 					ConstantNode *constant = alloc_node<ConstantNode>();
 					constant->value = GDScriptLanguage::get_singleton()->get_global_array()[GDScriptLanguage::get_singleton()->get_global_map()[identifier]];
@@ -3428,7 +3449,7 @@ void GDScriptParser::_parse_extends(ClassNode *p_class) {
 		return;
 	}
 
-	if (!p_class->constant_expressions.empty() || !p_class->subclasses.empty() || !p_class->functions.empty() || !p_class->variables.empty()) {
+	if (!p_class->constant_expressions.empty() || !p_class->subclasses.empty() || !p_class->functions.empty() || !p_class->variables.empty() || !p_class->static_variables.empty()) {
 
 		_set_error("\"extends\" must be used before anything else.");
 		return;
@@ -3674,6 +3695,12 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 						_set_error("A constant named \"" + String(name) + "\" already exists in the outer class scope (at line" + itos(outer_class->constant_expressions[name].expression->line) + ").");
 						return;
 					}
+					for (int i = 0; i < outer_class->static_variables.size(); i++) {
+						if (name == outer_class->static_variables[i].identifier) {
+							_set_error("A static variable named \"" + String(name) + "\" already exists in the outer class scope (at line" + itos(outer_class->static_variables[i].expression->line) + ").");
+							return;
+						}
+					}
 
 					outer_class = outer_class->owner;
 				}
@@ -3713,6 +3740,10 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 			*/
 			case GDScriptTokenizer::TK_PR_STATIC: {
 				tokenizer->advance();
+
+				if (tokenizer->get_token() == GDScriptTokenizer::TK_PR_VAR) {
+					break;
+				}
 				if (tokenizer->get_token() != GDScriptTokenizer::TK_PR_FUNCTION) {
 
 					_set_error("Expected \"func\".");
@@ -3758,14 +3789,22 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				if (p_class->constant_expressions.has(name)) {
 					_add_warning(GDScriptWarning::FUNCTION_CONFLICTS_CONSTANT, -1, name);
 				}
+				for (int i = 0; i < p_class->static_variables.size(); i++) {
+					if (p_class->static_variables[i].identifier == name) {
+						_add_warning(GDScriptWarning::FUNCTION_CONFLICTS_VARIABLE, -1, name);
+						break;
+					}
+				}
 				for (int i = 0; i < p_class->variables.size(); i++) {
 					if (p_class->variables[i].identifier == name) {
 						_add_warning(GDScriptWarning::FUNCTION_CONFLICTS_VARIABLE, -1, name);
+						break;
 					}
 				}
 				for (int i = 0; i < p_class->subclasses.size(); i++) {
 					if (p_class->subclasses[i]->name == name) {
 						_add_warning(GDScriptWarning::FUNCTION_CONFLICTS_CONSTANT, -1, name);
+						break;
 					}
 				}
 #endif // DEBUG_ENABLED
@@ -4742,9 +4781,17 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 					return;
 				}
 
+				for (int i = 0; i < current_class->static_variables.size(); i++) {
+					if (current_class->static_variables[i].identifier == member.identifier) {
+						_set_error("A Static variable named \"" + String(member.identifier) + "\" already exists in this class (at line: " +
+								   itos(current_class->static_variables[i].line) + ").");
+						return;
+					}
+				}
+
 				for (int i = 0; i < current_class->variables.size(); i++) {
 					if (current_class->variables[i].identifier == member.identifier) {
-						_set_error("Variable \"" + String(member.identifier) + "\" already exists in this class (at line: " +
+						_set_error("A variable named \"" + String(member.identifier) + "\" already exists in this class (at line: " +
 								   itos(current_class->variables[i].line) + ").");
 						return;
 					}
@@ -4974,7 +5021,11 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 					}
 				}
 
-				p_class->variables.push_back(member);
+				if (tokenizer->get_token(-1) == GDScriptTokenizer::TK_PR_STATIC) {
+					p_class->static_variables.push_back(member);
+				} else {
+					p_class->variables.push_back(member);
+				}
 
 				if (!_end_statement()) {
 					_set_error("Expected end of statement (\"continue\").");
@@ -5000,6 +5051,14 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 					_set_error("Constant \"" + String(const_id) + "\" already exists in this class (at line " +
 							   itos(current_class->constant_expressions[const_id].expression->line) + ").");
 					return;
+				}
+
+				for (int i = 0; i < current_class->static_variables.size(); i++) {
+					if (current_class->static_variables[i].identifier == const_id) {
+						_set_error("A Static variable named \"" + String(const_id) + "\" already exists in this class (at line " +
+								   itos(current_class->static_variables[i].line) + ").");
+						return;
+					}
 				}
 
 				for (int i = 0; i < current_class->variables.size(); i++) {
@@ -5077,6 +5136,14 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 						_set_error("A constant named \"" + String(enum_name) + "\" already exists in this class (at line " +
 								   itos(current_class->constant_expressions[enum_name].expression->line) + ").");
 						return;
+					}
+
+					for (int i = 0; i < current_class->static_variables.size(); i++) {
+						if (current_class->static_variables[i].identifier == enum_name) {
+							_set_error("A static variable named \"" + String(enum_name) + "\" already exists in this class (at line " +
+									   itos(current_class->static_variables[i].line) + ").");
+							return;
+						}
 					}
 
 					for (int i = 0; i < current_class->variables.size(); i++) {
@@ -5172,6 +5239,14 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 								_set_error("A constant named \"" + String(const_id) + "\" already exists in this class (at line " +
 										   itos(current_class->constant_expressions[const_id].expression->line) + ").");
 								return;
+							}
+
+							for (int i = 0; i < current_class->static_variables.size(); i++) {
+								if (current_class->static_variables[i].identifier == const_id) {
+									_set_error("A static variable named \"" + String(const_id) + "\" already exists in this class (at line " +
+											   itos(current_class->static_variables[i].line) + ").");
+									return;
+								}
 							}
 
 							for (int i = 0; i < current_class->variables.size(); i++) {
@@ -5382,6 +5457,22 @@ void GDScriptParser::_determine_inheritance(ClassNode *p_class, bool p_recursive
 						return;
 					}
 					break;
+				}
+
+				for (int i = 0; i < p->static_variables.size(); i++) {
+					if (p->static_variables[i].identifier == base) {
+						if (p->static_variables[i].expression->type != Node::TYPE_CONSTANT) {
+							_set_error("Couldn't resolve the constant \"" + base + "\".", p_class->line);
+							return;
+						}
+						const ConstantNode *cn = static_cast<const ConstantNode *>(p->static_variables[i].expression);
+						base_script = cn->value;
+						if (base_script.is_null()) {
+							_set_error("Static variable isn't a class: " + base, p_class->line);
+							return;
+						}
+						break;
+					}
 				}
 
 				p = p->owner;
@@ -5747,6 +5838,27 @@ GDScriptParser::DataType GDScriptParser::_resolve_type(const DataType &p_source,
 				}
 				break;
 			}
+
+			for (int i = 0; i < p->static_variables.size(); i++) {
+				if (p->static_variables[i].expression->type == Node::TYPE_CONSTANT) {
+					const ConstantNode *cn = static_cast<const ConstantNode *>(p->constant_expressions[id].expression);
+					Ref<GDScript> gds = cn->value;
+					if (gds.is_valid()) {
+						result.kind = DataType::GDSCRIPT;
+						result.script_type = gds;
+						found = true;
+					} else {
+						Ref<Script> scr = cn->value;
+						if (scr.is_valid()) {
+							result.kind = DataType::SCRIPT;
+							result.script_type = scr;
+							found = true;
+						}
+					}
+					break;
+				}
+			}
+			if (found) break;
 
 			// Inner classes
 			ClassNode *outer_class = p;
@@ -7277,6 +7389,13 @@ bool GDScriptParser::_get_member_type(const DataType &p_base_type, const StringN
 			return true;
 		}
 
+		for (int i = 0; i < base->static_variables.size(); i++) {
+			if (base->static_variables[i].identifier == p_member) {
+				r_member_type = base->static_variables[i].expression->get_datatype();
+				return true;
+			}
+		}
+
 		if (!base_type.is_meta_type) {
 			for (int i = 0; i < base->variables.size(); i++) {
 				if (base->variables[i].identifier == p_member) {
@@ -7532,6 +7651,10 @@ GDScriptParser::DataType GDScriptParser::_reduce_identifier_type(const DataType 
 			if (outer_class->constant_expressions.has(p_identifier)) {
 				return outer_class->constant_expressions[p_identifier].type;
 			}
+			for (int i = 0; i < outer_class->static_variables.size(); i++) {
+				if (outer_class->static_variables[i].identifier == p_identifier)
+					return outer_class->static_variables[i].data_type;
+			}
 			for (int i = 0; i < outer_class->subclasses.size(); i++) {
 				if (outer_class->subclasses[i] == current_class) {
 					continue;
@@ -7678,6 +7801,66 @@ void GDScriptParser::_check_class_level_types(ClassNode *p_class) {
 		}
 	}
 
+	// Static variables
+	for (int i = 0; i < p_class->static_variables.size(); i++) {
+		ClassNode::Member &v = p_class->static_variables.write[i];
+
+		DataType tmp;
+		if (v.identifier == script_name || _get_member_type(p_class->base_type, v.identifier, tmp)) {
+			_set_error("The member \"" + String(v.identifier) + "\" already exists in a parent class.", v.line);
+			return;
+		}
+
+		_mark_line_as_safe(v.line);
+		v.data_type = _resolve_type(v.data_type, v.line);
+
+		if (v.expression) {
+			DataType expr_type = _reduce_node_type(v.expression);
+
+			if (check_types && !_is_type_compatible(v.data_type, expr_type)) {
+				// Try supertype test
+				if (_is_type_compatible(expr_type, v.data_type)) {
+					_mark_line_as_unsafe(v.line);
+				} else {
+					// Try with implicit conversion
+					if (v.data_type.kind != DataType::BUILTIN || !_is_type_compatible(v.data_type, expr_type, true)) {
+						_set_error("The assigned expression's type (" + expr_type.to_string() + ") doesn't match the variable's type (" +
+										   v.data_type.to_string() + ").",
+								v.line);
+						return;
+					}
+
+					// Replace assignment with implicit conversion
+					BuiltInFunctionNode *convert = alloc_node<BuiltInFunctionNode>();
+					convert->line = v.line;
+					convert->function = GDScriptFunctions::TYPE_CONVERT;
+
+					ConstantNode *tgt_type = alloc_node<ConstantNode>();
+					tgt_type->line = v.line;
+					tgt_type->value = (int)v.data_type.builtin_type;
+
+					OperatorNode *convert_call = alloc_node<OperatorNode>();
+					convert_call->line = v.line;
+					convert_call->op = OperatorNode::OP_CALL;
+					convert_call->arguments.push_back(convert);
+					convert_call->arguments.push_back(v.expression);
+					convert_call->arguments.push_back(tgt_type);
+
+					v.expression = convert_call;
+					v.initial_assignment->arguments.write[1] = convert_call;
+				}
+			}
+
+			if (v.data_type.infer_type) {
+				if (!expr_type.has_type) {
+					_set_error("The assigned value doesn't have a set type; the variable type can't be inferred.", v.line);
+					return;
+				}
+				v.data_type = expr_type;
+				v.data_type.is_constant = false;
+			}
+		}
+	}
 	// Function declarations
 	for (int i = 0; i < p_class->static_functions.size(); i++) {
 		_check_function_types(p_class->static_functions[i]);

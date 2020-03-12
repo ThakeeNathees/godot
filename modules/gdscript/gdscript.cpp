@@ -99,6 +99,7 @@ GDScriptInstance *GDScript::_create_instance(const Variant **p_args, int p_argco
 	for (Map<StringName, MemberInfo>::Element *E = member_indices.front(); E; E = E->next()) {
 		instance->member_indices_cache[E->key()] = E->get().index;
 	}
+	// SV_TODO:
 #endif
 	instance->owner->set_script_instance(instance);
 
@@ -665,6 +666,14 @@ void GDScript::get_members(Set<StringName> *p_members) {
 	if (p_members) {
 		for (Set<StringName>::Element *E = members.front(); E; E = E->next()) {
 			p_members->insert(E->get());
+		}
+	}
+}
+
+void GDScript::get_static_vars(Set<StringName> *p_static_vars) {
+	if (p_static_vars) {
+		for (Set<StringName>::Element *E = static_vars.front(); E; E = E->next()) {
+			p_static_vars->insert(E->get());
 		}
 	}
 }

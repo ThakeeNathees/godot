@@ -1416,6 +1416,26 @@ static bool _guess_identifier_type_from_base(GDScriptCompletionContext &p_contex
 					return true;
 				}
 
+				for (int i = 0; i < base_type.class_type->static_variables.size(); i++) {
+					GDScriptParser::ClassNode::Member m = base_type.class_type->static_variables[i];
+					if (m.identifier == p_identifier) {
+						if (m.expression) {
+							if (_guess_expression_type(p_context, m.expression, r_type)) {
+								return true;
+							}
+							if (m.expression->get_datatype().has_type) {
+								r_type.type = m.expression->get_datatype();
+								return true;
+							}
+						}
+						if (m.data_type.has_type) {
+							r_type.type = m.data_type;
+							return true;
+						}
+						return false;
+					}
+				}
+
 				if (!_static) {
 					for (int i = 0; i < base_type.class_type->variables.size(); i++) {
 						GDScriptParser::ClassNode::Member m = base_type.class_type->variables[i];
@@ -1873,6 +1893,10 @@ static void _find_identifiers_in_class(const GDScriptCompletionContext &p_contex
 		if (!p_only_functions) {
 			for (Map<StringName, GDScriptParser::ClassNode::Constant>::Element *E = p_context._class->constant_expressions.front(); E; E = E->next()) {
 				ScriptCodeCompletionOption option(E->key(), ScriptCodeCompletionOption::KIND_CONSTANT);
+				r_result.insert(option.display, option);
+			}
+			for (int i = 0; i < p_context._class->static_variables.size(); i++) {
+				ScriptCodeCompletionOption option(p_context._class->static_variables[i].identifier, ScriptCodeCompletionOption::KIND_MEMBER);
 				r_result.insert(option.display, option);
 			}
 			for (int i = 0; i < p_context._class->subclasses.size(); i++) {
@@ -2828,6 +2852,20 @@ Error GDScriptLanguage::complete_code(const String &p_code, const String &p_path
 						}
 					}
 				}
+				for (int i = 0; i < clss->static_variables.size(); i++) {
+					GDScriptCompletionIdentifier variable;
+					GDScriptCompletionContext c = context;
+					const GDScriptParser::ClassNode::Member &member = clss->static_variables[i];
+					c.function = NULL;
+					c.block = NULL;
+					c.line = member.line;
+					if (_guess_expression_type(c, member.expression, variable)) {
+						if (variable.type.has_type && variable.type.is_meta_type) {
+							ScriptCodeCompletionOption option(member.identifier, ScriptCodeCompletionOption::KIND_CLASS);
+							options.insert(option.display, option);
+						}
+					}
+				}
 				for (int i = 0; i < clss->subclasses.size(); i++) {
 					if (clss->subclasses[i]->name != StringName()) {
 						ScriptCodeCompletionOption option(clss->subclasses[i]->name.operator String(), ScriptCodeCompletionOption::KIND_CLASS);
@@ -2923,6 +2961,20 @@ Error GDScriptLanguage::complete_code(const String &p_code, const String &p_path
 								if (_guess_expression_type(c2, E->value().expression, constant)) {
 									if (constant.type.has_type && constant.type.is_meta_type) {
 										ScriptCodeCompletionOption option(E->key().operator String(), ScriptCodeCompletionOption::KIND_CLASS);
+										options.insert(option.display, option);
+									}
+								}
+							}
+							for (int i = 0; i < base_type.class_type->static_variables.size(); i++) {
+								GDScriptCompletionIdentifier variable;
+								GDScriptCompletionContext c = context;
+								const GDScriptParser::ClassNode::Member &member = base_type.class_type->static_variables[i];
+								c.function = NULL;
+								c.block = NULL;
+								c.line = member.line;
+								if (_guess_expression_type(c, member.expression, variable)) {
+									if (variable.type.has_type && variable.type.is_meta_type) {
+										ScriptCodeCompletionOption option(member.identifier, ScriptCodeCompletionOption::KIND_CLASS);
 										options.insert(option.display, option);
 									}
 								}
@@ -3099,6 +3151,14 @@ static Error _lookup_symbol_from_base(const GDScriptParser::DataType &p_base, co
 							r_result.type = ScriptLanguage::LookupResult::RESULT_SCRIPT_LOCATION;
 							r_result.location = base_type.class_type->constant_expressions[p_symbol].expression->line;
 							return OK;
+						}
+
+						for (int i = 0; i < base_type.class_type->static_variables.size(); i++) {
+							if (base_type.class_type->static_variables[i].identifier == p_symbol) {
+								r_result.type = ScriptLanguage::LookupResult::RESULT_SCRIPT_LOCATION;
+								r_result.location = base_type.class_type->static_variables[i].line;
+								return OK;
+							}
 						}
 
 						for (int i = 0; i < base_type.class_type->variables.size(); i++) {

@@ -79,9 +79,11 @@ class GDScript : public Script {
 	GDScript *_owner; //for subclasses
 
 	Set<StringName> members; //members are just indices to the instanced script.
+	Set<StringName> static_vars;
 	Map<StringName, Variant> constants;
 	Map<StringName, GDScriptFunction *> member_functions;
 	Map<StringName, MemberInfo> member_indices; //members are just indices to the instanced script.
+	Map<StringName, MemberInfo> static_var_indices;
 	Map<StringName, Ref<GDScript> > subclasses;
 	Map<StringName, Vector<StringName> > _signals;
 	Vector<ScriptNetData> rpc_functions;
@@ -90,11 +92,15 @@ class GDScript : public Script {
 #ifdef TOOLS_ENABLED
 
 	Map<StringName, int> member_lines;
+	Map<StringName, int> static_var_lines;
 
 	Map<StringName, Variant> member_default_values;
+	Map<StringName, Variant> static_var_default_values;
 
 	List<PropertyInfo> members_cache;
+	List<PropertyInfo> static_var_cache;
 	Map<StringName, Variant> member_default_values_cache;
+	Map<StringName, Variant> static_var_default_values_cache;
 	Ref<GDScript> base_cache;
 	Set<ObjectID> inheriters_cache;
 	bool source_changed_cache;
@@ -103,6 +109,7 @@ class GDScript : public Script {
 
 #endif
 	Map<StringName, PropertyInfo> member_info;
+	Map<StringName, PropertyInfo> static_var_info;
 
 	GDScriptFunction *initializer; //direct pointer to _init , faster to locate
 
@@ -151,6 +158,7 @@ public:
 	const Map<StringName, Ref<GDScript> > &get_subclasses() const { return subclasses; }
 	const Map<StringName, Variant> &get_constants() const { return constants; }
 	const Set<StringName> &get_members() const { return members; }
+	const Set<StringName> &get_static_vars() const { return static_vars; }
 	const GDScriptDataType &get_member_type(const StringName &p_member) const {
 		CRASH_COND(!member_indices.has(p_member));
 		return member_indices[p_member].data_type;
@@ -213,6 +221,7 @@ public:
 
 	virtual void get_constants(Map<StringName, Variant> *p_constants);
 	virtual void get_members(Set<StringName> *p_members);
+	virtual void get_static_vars(Set<StringName> *p_members);
 
 	virtual Vector<ScriptNetData> get_rpc_methods() const;
 	virtual uint16_t get_rpc_method_id(const StringName &p_method) const;

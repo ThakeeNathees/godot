@@ -188,6 +188,7 @@ public:
 		Map<StringName, Constant> constant_expressions;
 		Vector<FunctionNode *> functions;
 		Vector<FunctionNode *> static_functions;
+		Vector<Member> static_variables;
 		Vector<Signal> _signals;
 		BlockNode *initializer;
 		BlockNode *ready;
