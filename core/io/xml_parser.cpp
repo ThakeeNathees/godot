@@ -36,6 +36,8 @@
 
 VARIANT_ENUM_CAST(XMLParser::NodeType);
 
+Vector<String> XMLParser::special_characters;
+
 static bool _equalsn(const CharType *str1, const CharType *str2, int len) {
 	int i;
 	for (i = 0; i < len && str1[i] && str2[i]; ++i) {
@@ -47,6 +49,140 @@ static bool _equalsn(const CharType *str1, const CharType *str2, int len) {
 	// if one (or both) of the strings was smaller then they
 	// are only equal if they have the same length
 	return (i == len) || (str1[i] == 0 && str2[i] == 0);
+}
+
+void XMLTag::set_name(const String &p_name) {
+	name = p_name;
+}
+
+String XMLTag::get_name() const {
+	return name;
+}
+
+void XMLTag::set_data(const String &p_data) {
+	data = XMLParser::_escape_special_characters(p_data);
+}
+
+String XMLTag::get_data() const {
+	return data;
+}
+
+bool XMLTag::is_comment() const {
+	return _is_comment;
+}
+
+void XMLTag::set_comment(bool p_is_comment) {
+	_is_comment = p_is_comment;
+}
+
+int XMLTag::get_child_tag_count() const {
+	return child_tags.size();
+}
+
+Ref<XMLTag> XMLTag::get_child_tag(int p_idx) const {
+	ERR_FAIL_INDEX_V(p_idx, child_tags.size(), Ref<XMLTag>());
+	return child_tags[p_idx];
+}
+
+void XMLTag::add_child_tag(const Variant &p_child_tag) {
+	child_tags.push_back(p_child_tag);
+}
+
+void XMLTag::remove_child_tag(int p_idx) {
+	ERR_FAIL_INDEX(p_idx, child_tags.size());
+	child_tags.remove(p_idx);
+}
+
+int XMLTag::get_attribute_count() const {
+	return attributes.size();
+}
+
+String XMLTag::get_attribute_name(int p_idx) const {
+	ERR_FAIL_INDEX_V(p_idx, attributes.size(), "");
+	return attributes[p_idx].name;
+}
+
+String XMLTag::get_attribute_value(int p_idx) const {
+	ERR_FAIL_INDEX_V(p_idx, attributes.size(), "");
+	return attributes[p_idx].value;
+}
+
+bool XMLTag::has_attribute(const String &p_name) const {
+	for (int i = 0; i < attributes.size(); i++) {
+		if (attributes[i].name == p_name) {
+			return true;
+		}
+	}
+	return false;
+}
+
+String XMLTag::get_attribute_value(const String &p_name) const {
+	int idx = -1;
+	for (int i = 0; i < attributes.size(); i++) {
+		if (attributes[i].name == p_name) {
+			idx = i;
+			break;
+		}
+	}
+
+	ERR_FAIL_COND_V_MSG(idx < 0, "", "Attribute not found: " + p_name + ".");
+
+	return attributes[idx].value;
+}
+
+String XMLTag::get_attribute_value_safe(const String &p_name) const {
+	int idx = -1;
+	for (int i = 0; i < attributes.size(); i++) {
+		if (attributes[i].name == p_name) {
+			idx = i;
+			break;
+		}
+	}
+
+	if (idx < 0) {
+		return "";
+	}
+	return attributes[idx].value;
+}
+
+void XMLTag::set_attribute(const String &p_name, const String &p_value) {
+	int idx = -1;
+	for (int i = 0; i < attributes.size(); i++) {
+		if (attributes[i].name == p_name) {
+			attributes.write[i].value = XMLParser::_escape_special_characters(p_value);
+			return;
+		}
+	}
+
+	attributes.push_back(XMLTag::Attribute(p_name, XMLParser::_escape_special_characters(p_value)));
+}
+
+void XMLTag::remove_attribute(int p_idx) {
+	ERR_FAIL_INDEX(p_idx, attributes.size());
+	attributes.remove(p_idx);
+}
+
+void XMLTag::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_name"), &XMLTag::get_name);
+	ClassDB::bind_method(D_METHOD("set_name", "name"), &XMLTag::set_name);
+	ClassDB::bind_method(D_METHOD("get_data"), &XMLTag::get_data);
+	ClassDB::bind_method(D_METHOD("set_data", "data"), &XMLTag::set_data);
+	ClassDB::bind_method(D_METHOD("is_comment"), &XMLTag::is_comment);
+	ClassDB::bind_method(D_METHOD("set_comment", "is_comment"), &XMLTag::set_comment);
+
+	ClassDB::bind_method(D_METHOD("get_child_tag_count"), &XMLTag::get_child_tag_count);
+	ClassDB::bind_method(D_METHOD("get_child_tag", "idx"), &XMLTag::get_child_tag);
+	ClassDB::bind_method(D_METHOD("add_child_tag", "child_tag"), &XMLTag::add_child_tag);
+	ClassDB::bind_method(D_METHOD("remove_child_tag", "idx"), &XMLTag::remove_child_tag);
+
+	ClassDB::bind_method(D_METHOD("get_attribute_count"), &XMLTag::get_attribute_count);
+	ClassDB::bind_method(D_METHOD("get_attribute_name", "idx"), &XMLTag::get_attribute_name);
+	ClassDB::bind_method(D_METHOD("get_attribute_value", "idx"), (String(XMLTag::*)(int) const) & XMLTag::get_attribute_value);
+	ClassDB::bind_method(D_METHOD("has_attribute", "name"), &XMLTag::has_attribute);
+	ClassDB::bind_method(D_METHOD("get_named_attribute_value", "name"), (String(XMLTag::*)(const String &) const) & XMLTag::get_attribute_value);
+	ClassDB::bind_method(D_METHOD("get_named_attribute_value_safe", "name"), &XMLTag::get_attribute_value_safe);
+	ClassDB::bind_method(D_METHOD("set_attribute", "name", "value"), &XMLTag::set_attribute);
+	ClassDB::bind_method(D_METHOD("remove_attribute", "idx"), &XMLTag::remove_attribute);
 }
 
 String XMLParser::_replace_special_characters(const String &origstr) {
@@ -90,6 +226,16 @@ String XMLParser::_replace_special_characters(const String &origstr) {
 		newstr += (origstr.substr(oldPos, origstr.length() - oldPos));
 	}
 
+	return newstr;
+}
+
+String XMLParser::_escape_special_characters(const String &p_origstr) {
+	String newstr = p_origstr;
+	for (int i = 0; i < (int)special_characters.size(); ++i) {
+		String special_character(&special_characters[i][0], 1);
+		String escape_string(&special_characters[i][1]);
+		newstr.replace(special_character, escape_string);
+	}
 	return newstr;
 }
 
@@ -373,6 +519,10 @@ Error XMLParser::seek(uint64_t p_pos) {
 }
 
 void XMLParser::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("parse"), &XMLParser::parse);
+	ClassDB::bind_method(D_METHOD("get_tag_count"), &XMLParser::get_tag_count);
+	ClassDB::bind_method(D_METHOD("get_tag"), &XMLParser::get_tag);
+
 	ClassDB::bind_method(D_METHOD("read"), &XMLParser::read);
 	ClassDB::bind_method(D_METHOD("get_node_type"), &XMLParser::get_node_type);
 	ClassDB::bind_method(D_METHOD("get_node_name"), &XMLParser::get_node_name);
@@ -398,6 +548,76 @@ void XMLParser::_bind_methods() {
 	BIND_ENUM_CONSTANT(NODE_COMMENT);
 	BIND_ENUM_CONSTANT(NODE_CDATA);
 	BIND_ENUM_CONSTANT(NODE_UNKNOWN);
+}
+
+Error XMLParser::parse() {
+
+	Error err;
+	XMLTag *tag = nullptr;
+	P = data; // seek(0) without reading.
+
+	while (true) {
+		err = read();
+		if (err != OK) {
+			break;
+		}
+
+		switch (node_type) {
+			case NODE_NONE: {
+				// Empty file.
+				return ERR_INVALID_DATA;
+			} break;
+			case NODE_ELEMENT: {
+				Ref<XMLTag> new_tag;
+				new_tag.instance();
+				new_tag->name = get_node_name();
+				new_tag->_parent_tag = tag;
+				if (!tag) {
+					tags.push_back(new_tag);
+				} else {
+					tag->child_tags.push_back(new_tag);
+				}
+				tag = new_tag.ptr();
+				for (int i = 0; i < get_attribute_count(); i++) {
+					tag->attributes.push_back(XMLTag::Attribute(get_attribute_name(i), get_attribute_value(i)));
+				}
+			} break;
+			case NODE_ELEMENT_END: {
+				if (!tag || tag->name != get_node_name()) {
+					return ERR_INVALID_DATA;
+				}
+				tag = tag->_parent_tag;
+			} break;
+			case NODE_TEXT: {
+				tag->data = get_node_data();
+			} break;
+			case NODE_COMMENT: {
+				Ref<XMLTag> new_tag;
+				new_tag.instance();
+				new_tag->name = get_node_name();
+				new_tag->_parent_tag = tag;
+				new_tag->_is_comment = true;
+				tag->child_tags.push_back(new_tag);
+			} break;
+			case NODE_CDATA: {
+				tag->data = get_node_name();
+			} break;
+			case NODE_UNKNOWN: {
+				// TODO: must be XML Declaration.
+			} break;
+		}
+	}
+
+	return (err == ERR_FILE_EOF) ? OK : err;
+}
+
+int XMLParser::get_tag_count() const {
+	return tags.size();
+}
+
+Ref<XMLTag> XMLParser::get_tag(int p_idx) const {
+	ERR_FAIL_INDEX_V(p_idx, tags.size(), Ref<XMLTag>());
+	return tags.get(p_idx);
 }
 
 Error XMLParser::read() {

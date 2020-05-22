@@ -36,6 +36,58 @@
 #include "core/ustring.h"
 #include "core/vector.h"
 
+class XMLTag : public Reference {
+	GDCLASS(XMLTag, Reference);
+
+private:
+	friend class XMLParser;
+
+	struct Attribute {
+		String name;
+		String value;
+
+		Attribute() {}
+		Attribute(const String &p_name, const String &p_value) {
+			name = p_name;
+			value = p_value;
+		}
+	};
+
+	String name;
+	Vector<Attribute> attributes;
+	String data;
+	Vector<Ref<XMLTag>> child_tags;
+	bool _is_comment = false;
+
+	XMLTag *_parent_tag; // Used in parsing.
+
+	static void _bind_methods();
+
+public:
+	void set_name(const String &p_name);
+	String get_name() const;
+
+	void set_data(const String &p_data);
+	String get_data() const;
+
+	bool is_comment() const;
+	void set_comment(bool p_is_comment);
+
+	int get_child_tag_count() const;
+	Ref<XMLTag> get_child_tag(int p_idx) const;
+	void add_child_tag(const Variant &p_xml_tag);
+	void remove_child_tag(int p_idx);
+
+	int get_attribute_count() const;
+	String get_attribute_name(int p_idx) const;
+	String get_attribute_value(int p_idx) const;
+	bool has_attribute(const String &p_name) const;
+	String get_attribute_value(const String &p_name) const;
+	String get_attribute_value_safe(const String &p_name) const;
+	void set_attribute(const String &p_name, const String &p_value);
+	void remove_attribute(int p_idx);
+};
+
 /*
   Based on irrXML (see their zlib license). Added mainly for compatibility with their Collada loader.
 */
@@ -65,11 +117,13 @@ public:
 	};
 
 private:
+	Vector<Ref<XMLTag>> tags;
+
 	char *data = nullptr;
 	char *P = nullptr;
 	uint64_t length = 0;
 	void unescape(String &p_str);
-	Vector<String> special_characters;
+	static Vector<String> special_characters;
 	String node_name;
 	bool node_empty = false;
 	NodeType node_type = NODE_NONE;
@@ -82,7 +136,6 @@ private:
 
 	Vector<Attribute> attributes;
 
-	String _replace_special_characters(const String &origstr);
 	bool _set_text(char *start, char *end);
 	void _parse_closing_xml_element();
 	void _ignore_definition();
@@ -94,6 +147,13 @@ private:
 	static void _bind_methods();
 
 public:
+	Error parse();
+	int get_tag_count() const;
+	Ref<XMLTag> get_tag(int p_idx) const;
+
+	static String _replace_special_characters(const String &origstr);
+	static String _escape_special_characters(const String &p_origstr);
+
 	Error read();
 	NodeType get_node_type();
 	String get_node_name() const;
